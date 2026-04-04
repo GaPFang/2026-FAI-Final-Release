@@ -1,6 +1,6 @@
 {
     "players": [
-        ["src.players.TA.random_player", "RandomPlayer"],
+        ["src.players.b11901003.player1", "Player1"],
         ["src.players.TA.random_player", "RandomPlayer", {}],
         ["src.players.TA.random_player", "RandomPlayer", {}, "label"],
         {
