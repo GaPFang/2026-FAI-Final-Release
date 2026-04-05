@@ -20,7 +20,7 @@ class RLPlayer(PlayerBase):
 
     # board has board_size_y=4 rows; _embed_board returns 4 * 3 = 12 values
     N_ROWS = 4
-    INPUT_SIZE = N_ROWS * 3 + 104 + 104  # board(12) + hand(104) + remaining(104) = 220
+    INPUT_SIZE = 104 * 3 + 104 + 104  # board embedding + hand binary + remaining cards binary
 
     def __init__(self, player_idx, lr=1e-3, gamma=0.99, batch_size=32, checkpoint=None):
         super().__init__(player_idx)

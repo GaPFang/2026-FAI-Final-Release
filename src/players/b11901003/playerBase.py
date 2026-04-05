@@ -16,20 +16,27 @@ class PlayerBase():
     
     def _embed_board(self, board):
         """
-        Convert board to a fixed-size embedding.
-        Each row is represented by its normalized last card, length, and score.
+        Creates a (104 x 3) flattened array.
+        For every card from 1 to 104, it stores [is_active, normalized_length, normalized_score].
         """
         embedding = []
-        for row in board:
-            norm_last_card = row[-1] / 104.0
-            norm_length = len(row) / 5.0
-            norm_score = self._get_row_score(row) / 25.0  # 25 is a safe upper bound for row penalties
-            
-            embedding.append([norm_last_card, norm_length, norm_score])
-
-        embedding = sorted(embedding, key=lambda x: x[0])
         
-        embedding = [item for sublist in embedding for item in sublist]
+        # Create a quick lookup dictionary for the active rows
+        # Key: last_card, Value: (norm_length, norm_score)
+        row_stats = {
+            row[-1]: (len(row) / 5.0, self._get_row_score(row) / 25.0) 
+            for row in board
+        }
+        
+        # Build the 104 slots
+        for card in range(1, self.n_cards + 1):
+            if card in row_stats:
+                length_norm, score_norm = row_stats[card]
+                embedding.extend([1.0, length_norm, score_norm])
+            else:
+                # Empty slot for cards not currently acting as row ends
+                embedding.extend([0.0, 0.0, 0.0])
+                
         return embedding
 
     def _get_remaining_cards(self, hand, history):
