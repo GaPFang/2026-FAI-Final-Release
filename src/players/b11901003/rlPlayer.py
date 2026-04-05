@@ -22,12 +22,16 @@ class RLPlayer(PlayerBase):
     N_ROWS = 4
     INPUT_SIZE = N_ROWS * 3 + 104 + 104  # board(12) + hand(104) + remaining(104) = 220
 
-    def __init__(self, player_idx, lr=1e-3, gamma=0.99, checkpoint=None):
+    def __init__(self, player_idx, lr=1e-3, gamma=0.99, batch_size=32, checkpoint=None):
         super().__init__(player_idx)
         self.gamma = gamma
+        self.batch_size = batch_size
         self.model = Model(input_size=self.INPUT_SIZE, hidden_size=128, output_size=self.n_cards)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        self.saved_log_probs = []  # cleared after each update()
+        self.saved_log_probs = []   # log-probs for the current in-progress game
+        self._pending_log_probs = []  # accumulated across games in the current batch
+        self._pending_returns = []    # corresponding discounted returns
+        self._games_in_batch = 0
 
         if checkpoint is not None:
             self.load(checkpoint)
@@ -58,49 +62,64 @@ class RLPlayer(PlayerBase):
 
     def update(self, score_history):
         """
+        Call once per game. Accumulates the trajectory into a batch; performs a
+        gradient update only when batch_size complete games have been collected.
+
         Args:
-            score_history: list of length n_rounds; each element is a list of
-                           cumulative scores for all players after that round,
-                           i.e. engine.score_history.
+            score_history: engine.score_history — list of length n_rounds where
+                           each element is the cumulative scores of all players.
         Returns:
-            loss (float), or 0.0 if no trajectory was recorded.
+            loss (float) if a gradient step was taken this call, else None.
         """
         if not self.saved_log_probs:
-            return 0.0
+            return None
 
-        # Per-round penalty for this player (negative = good, positive = bad)
-        rewards = []
-        prev = 0
+        # --- compute per-round rewards for this game ---
+        rewards, prev = [], 0
         for round_scores in score_history:
             penalty = round_scores[self.player_idx] - prev
-            rewards.append(-float(penalty))          # reward = -penalty
+            rewards.append(-float(penalty))
             prev = round_scores[self.player_idx]
 
         assert len(rewards) == len(self.saved_log_probs), (
             f"Reward/log-prob length mismatch: {len(rewards)} vs {len(self.saved_log_probs)}"
         )
 
-        # Discounted returns
+        # --- discounted returns for this game ---
         G, returns = 0.0, []
         for r in reversed(rewards):
             G = r + self.gamma * G
             returns.insert(0, G)
-        returns = torch.tensor(returns, dtype=torch.float32)
 
-        # Normalize for variance reduction
-        if returns.numel() > 1 and returns.std() > 1e-8:
-            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+        # --- accumulate into batch buffers ---
+        self._pending_log_probs.extend(self.saved_log_probs)
+        self._pending_returns.extend(returns)
+        self.saved_log_probs = []
+        self._games_in_batch += 1
 
-        # REINFORCE loss: -E[G * log π(a|s)]
+        if self._games_in_batch < self.batch_size:
+            return None  # batch not full yet
+
+        # --- batch is full: gradient step ---
+        returns_t = torch.tensor(self._pending_returns, dtype=torch.float32)
+
+        # normalize across the whole batch for variance reduction
+        if returns_t.numel() > 1 and returns_t.std() > 1e-8:
+            returns_t = (returns_t - returns_t.mean()) / (returns_t.std() + 1e-8)
+
         loss = -torch.stack(
-            [lp * G for lp, G in zip(self.saved_log_probs, returns)]
-        ).sum()
+            [lp * G for lp, G in zip(self._pending_log_probs, returns_t)]
+        ).mean()
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        self.saved_log_probs = []
+        # reset batch state
+        self._pending_log_probs = []
+        self._pending_returns = []
+        self._games_in_batch = 0
+
         return loss.item()
 
     def save(self, path):
@@ -181,6 +200,7 @@ if __name__ == "__main__":
         player_idx=0,
         lr=train_cfg["lr"],
         gamma=train_cfg["gamma"],
+        batch_size=train_cfg.get("batch_size", 1),
     )
     if args.load:
         agent.load(args.load)
@@ -189,14 +209,16 @@ if __name__ == "__main__":
     agent.model.train()
 
     # ---- training loop -----------------------------------------------------
-    episodes  = train_cfg["episodes"]
-    log_every = train_cfg["log_every"]
+    episodes   = train_cfg["episodes"]
+    log_every  = train_cfg["log_every"]
+    batch_size = train_cfg.get("batch_size", 1)
 
-    total_loss  = 0.0
-    total_score = 0.0
-    best_avg    = float("inf")
+    total_loss   = 0.0
+    n_updates    = 0       # gradient steps taken in this log window
+    total_score  = 0.0
+    best_avg     = float("inf")
 
-    print(f"Training for {episodes} episodes …")
+    print(f"Training for {episodes} episodes (batch_size={batch_size}) …")
     print(f"Config : {args.config}")
     print(f"Output : {output_dir}")
 
@@ -210,16 +232,20 @@ if __name__ == "__main__":
         engine = Engine(copy.deepcopy(engine_cfg), players)
         final_scores, _ = engine.play_game()
 
-        loss = agent.update(engine.score_history)
+        loss = agent.update(engine.score_history)  # None until batch is full
 
-        total_loss  += loss
+        if loss is not None:
+            total_loss += loss
+            n_updates  += 1
         total_score += final_scores[0]   # agent penalty (lower = better)
 
         if ep % log_every == 0:
-            avg_loss  = total_loss  / log_every
+            avg_loss  = total_loss / n_updates if n_updates else 0.0
             avg_score = total_score / log_every
-            print(f"ep {ep:>6}  avg_loss={avg_loss:+.4f}  avg_penalty={avg_score:.2f}")
+            print(f"ep {ep:>6}  avg_loss={avg_loss:+.4f}  avg_penalty={avg_score:.2f}"
+                  f"  updates={n_updates}")
             total_loss  = 0.0
+            n_updates   = 0
             total_score = 0.0
 
             if avg_score < best_avg:
