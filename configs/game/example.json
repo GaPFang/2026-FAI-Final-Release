@@ -1,14 +1,9 @@
 {
     "players": [
-        ["src.players.b11901003.player1", "Player1"],
-        ["src.players.TA.random_player", "RandomPlayer", {}],
-        ["src.players.TA.random_player", "RandomPlayer", {}, "label"],
-        {
-            "path": "src.players.TA.random_player",
-            "class": "RandomPlayer",
-            "args": {},
-            "label": "label"
-        }
+        ["src.players.b11901003.rlPlayer", "RLPlayer", {"checkpoint": "src/players/b11901003/trained/rl_0.001_0.99_30000_20260405_150157/rl_checkpoint.pt"}],
+        ["src.players.TA.public_baselines1", "Baseline1", {}, "B1"],
+        ["src.players.TA.public_baselines1", "Baseline1", {}, "B2"],
+        ["src.players.TA.public_baselines1", "Baseline1", {}, "B3"]
     ],
     "engine": {
         "n_players": 4,

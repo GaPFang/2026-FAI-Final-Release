@@ -1,0 +1,19 @@
+{
+    "opponents": [
+        ["src.players.TA.random_player", "RandomPlayer", {}],
+        ["src.players.TA.random_player", "RandomPlayer", {}],
+        ["src.players.TA.random_player", "RandomPlayer", {}]
+    ],
+    "engine": {
+        "n_players": 4,
+        "n_rounds": 10,
+        "verbose": false
+    },
+    "train": {
+        "episodes": 30000,
+        "lr": 1e-3,
+        "gamma": 0.99,
+        "log_every": 100
+    },
+    "output_dir": "src/players/b11901003/trained"
+}

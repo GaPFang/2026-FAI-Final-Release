@@ -85,3 +85,9 @@ class BestPlayer1:
 *   **6th Card Rule**: If a row has 5 cards, the 6th card placed takes the row.
 *   **Low Card Rule**: If a played card is lower than the last card of all rows, the player takes the row with the **lowest score**.
     *   Tie-breaking: Lowest card count -> Smallest row index.
+
+## Training the RL Agent
+The `rlPlayer.py` script can be used to train a reinforcement learning agent. It uses a simple policy gradient method with a feedforward neural network. To train the agent, run:
+```
+python -m src.players.b11901003.rlPlayer --config configs/train/example.json
+```
