@@ -52,6 +52,8 @@ class RLPlayer(PlayerBase):
             with torch.no_grad():
                 logits = self.model(state_t, mask_t).squeeze(0)
                 local_idx = logits[hand_indices].argmax().item()
+                zipped = list(zip(hand, logits[hand_indices].tolist()))
+                print(f"Player {self.player_idx} hand logits: {zipped}")
             return hand[local_idx]
 
     def update(self, score_history):

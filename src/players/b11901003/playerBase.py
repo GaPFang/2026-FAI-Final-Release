@@ -17,14 +17,18 @@ class PlayerBase():
     def _embed_board(self, board):
         """
         Convert board to a fixed-size embedding.
-        Each row is represented by its last card and length.
+        Each row is represented by its normalized last card, length, and score.
         """
         embedding = []
         for row in board:
-            embedding.append([row[-1], len(row), self._get_row_score(row)])
+            norm_last_card = row[-1] / 104.0
+            norm_length = len(row) / 5.0
+            norm_score = self._get_row_score(row) / 25.0  # 25 is a safe upper bound for row penalties
+            
+            embedding.append([norm_last_card, norm_length, norm_score])
+
         embedding = sorted(embedding, key=lambda x: x[0])
-        embedding = sorted(embedding, key=lambda x: x[1])
-        embedding = sorted(embedding, key=lambda x: x[2])
+        
         embedding = [item for sublist in embedding for item in sublist]
         return embedding
 
