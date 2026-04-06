@@ -1,8 +1,8 @@
 {
     "opponents": [
-        ["src.players.TA.random_player", "RandomPlayer", {}],
-        ["src.players.TA.random_player", "RandomPlayer", {}],
-        ["src.players.TA.random_player", "RandomPlayer", {}]
+        ["src.players.TA.public_baselines1", "Baseline1", {}, "B1"],
+        ["src.players.TA.public_baselines1", "Baseline1", {}, "B2"],
+        ["src.players.TA.public_baselines1", "Baseline1", {}, "B3"]
     ],
     "engine": {
         "n_players": 4,
@@ -10,7 +10,7 @@
         "verbose": false
     },
     "train": {
-        "episodes": 30000,
+        "episodes": 15000,
         "lr": 1e-3,
         "gamma": 0.99,
         "batch_size": 32,

@@ -20,13 +20,13 @@ class RLPlayer(PlayerBase):
 
     # board has board_size_y=4 rows; _embed_board returns 4 * 3 = 12 values
     N_ROWS = 4
-    INPUT_SIZE = N_ROWS * 3 + 104 + 104  # board(12) + hand(104) + remaining(104) = 220
+    INPUT_SIZE = N_ROWS * 3 + 10  # board embedding + hand embedding (max 10 cards)
 
     def __init__(self, player_idx, lr=1e-3, gamma=0.99, batch_size=32, checkpoint=None):
         super().__init__(player_idx)
         self.gamma = gamma
         self.batch_size = batch_size
-        self.model = Model(input_size=self.INPUT_SIZE, hidden_size=128, output_size=self.n_cards)
+        self.model = Model(input_size=self.INPUT_SIZE, hidden_size=64, output_size=10)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.saved_log_probs = []   # log-probs for the current in-progress game
         self._pending_log_probs = []  # accumulated across games in the current batch
@@ -40,24 +40,19 @@ class RLPlayer(PlayerBase):
     def action(self, hand, history):
         state_emb = self._embed_state(hand, history)
         state_t = torch.tensor(state_emb, dtype=torch.float32).unsqueeze(0)
-        mask_t = torch.tensor(self._embed_hand(hand), dtype=torch.float32).unsqueeze(0)
+        mask_t = torch.tensor([1 if h < self.num_card_in_hand else 0 for h in range(self.max_num_card_in_hand)], dtype=torch.float32).unsqueeze(0)
 
-        # Indices of cards in hand into the 0-indexed card space
-        hand_indices = torch.tensor([c - 1 for c in hand], dtype=torch.long)
 
         if self.model.training:
-            logits = self.model(state_t, mask_t).squeeze(0)        # (n_cards,)
-            hand_logits = logits[hand_indices]                      # (|hand|,)
-            dist = torch.distributions.Categorical(logits=hand_logits)
+            logits = self.model(state_t, mask_t).squeeze(0)        # (10,)
+            dist = torch.distributions.Categorical(logits=logits)
             local_idx = dist.sample()                               # index into hand list
             self.saved_log_probs.append(dist.log_prob(local_idx))
             return hand[local_idx.item()]
         else:
             with torch.no_grad():
                 logits = self.model(state_t, mask_t).squeeze(0)
-                local_idx = logits[hand_indices].argmax().item()
-                zipped = list(zip(hand, logits[hand_indices].tolist()))
-                print(f"Player {self.player_idx} hand logits: {zipped}")
+                local_idx = logits.argmax().item()
             return hand[local_idx]
 
     def update(self, score_history):
@@ -104,8 +99,10 @@ class RLPlayer(PlayerBase):
         returns_t = torch.tensor(self._pending_returns, dtype=torch.float32)
 
         # normalize across the whole batch for variance reduction
-        if returns_t.numel() > 1 and returns_t.std(correction=0) > 1e-8:
-            returns_t = (returns_t - returns_t.mean()) / (returns_t.std(correction=0) + 1e-8)
+        if returns_t.numel() > 1:
+            std = returns_t.std(correction=0)
+            if std > 1e-8:
+                returns_t = (returns_t - returns_t.mean()) / (std + 1e-8)
 
         loss = -torch.stack(
             [lp * G for lp, G in zip(self._pending_log_probs, returns_t)]
