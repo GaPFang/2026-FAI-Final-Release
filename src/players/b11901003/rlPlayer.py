@@ -20,7 +20,7 @@ class RLPlayer(PlayerBase):
 
     # board has board_size_y=4 rows; _embed_board returns 4 * 3 = 12 values
     N_ROWS = 4
-    INPUT_SIZE = 104 * 3 + 104 + 104  # board embedding + hand binary + remaining cards binary
+    INPUT_SIZE = N_ROWS * 3 + 104 + 104  # board(12) + hand(104) + remaining(104) = 220
 
     def __init__(self, player_idx, lr=1e-3, gamma=0.99, batch_size=32, checkpoint=None):
         super().__init__(player_idx)
@@ -104,8 +104,8 @@ class RLPlayer(PlayerBase):
         returns_t = torch.tensor(self._pending_returns, dtype=torch.float32)
 
         # normalize across the whole batch for variance reduction
-        if returns_t.numel() > 1 and returns_t.std() > 1e-8:
-            returns_t = (returns_t - returns_t.mean()) / (returns_t.std() + 1e-8)
+        if returns_t.numel() > 1 and returns_t.std(correction=0) > 1e-8:
+            returns_t = (returns_t - returns_t.mean()) / (returns_t.std(correction=0) + 1e-8)
 
         loss = -torch.stack(
             [lp * G for lp, G in zip(self._pending_log_probs, returns_t)]
