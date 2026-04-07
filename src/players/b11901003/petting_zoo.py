@@ -75,6 +75,7 @@ def _compute_presum(hand, history):
             played.update(r)
     for r in history.get("board", []):
         played.update(r)
+    played.update(hand)
     presum = [0] * (N_CARDS + 1)
     for c in range(1, N_CARDS + 1):
         presum[c] = presum[c - 1] + (0 if c in played else 1)
