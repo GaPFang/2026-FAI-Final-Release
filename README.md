@@ -91,3 +91,9 @@ The `rl_player.py` script can be used to train a reinforcement learning agent. I
 ```
 python -m src.players.b11901003.rl_player --config configs/train/example.json
 ```
+
+## Training the PettingZoo PPO Agent
+The `petting_zoo.py` script can be used to train a PPO agent using the PettingZoo library. To train the agent, run:
+```
+python -m src.players.b11901003.petting_zoo --config configs/train/example.json
+```
