@@ -87,7 +87,7 @@ class BestPlayer1:
     *   Tie-breaking: Lowest card count -> Smallest row index.
 
 ## Training the RL Agent
-The `rlPlayer.py` script can be used to train a reinforcement learning agent. It uses a simple policy gradient method with a feedforward neural network. To train the agent, run:
+The `rl_player.py` script can be used to train a reinforcement learning agent. It uses a simple policy gradient method with a feedforward neural network. To train the agent, run:
 ```
-python -m src.players.b11901003.rlPlayer --config configs/train/example.json
+python -m src.players.b11901003.rl_player --config configs/train/example.json
 ```

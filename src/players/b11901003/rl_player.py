@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from .model import Model
-from .playerBase import PlayerBase
+from .player_base import PlayerBase
 
 
 class RLPlayer(PlayerBase):
@@ -28,10 +28,10 @@ class RLPlayer(PlayerBase):
     """
 
     # board has board_size_y=4 rows; _embed_board returns 4×3=12 values
-    # hand embedding: 10 values
+    # hand embedding: 4 features × 10 slots = 40 values
     # context: round_feat + score_diff = 2 values
     N_ROWS = 4
-    INPUT_SIZE = N_ROWS * 3 + 10 + 2   # 24
+    INPUT_SIZE = N_ROWS * 3 + 4 * 10 + 2   # 54
 
     def __init__(self, player_idx, lr=1e-3, gamma=0.99, batch_size=32,
                  entropy_coef=0.01, value_coef=0.5, checkpoint=None):
