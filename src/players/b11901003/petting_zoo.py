@@ -421,8 +421,12 @@ class SixNimmtSingleAgentEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, opponent_cls, n_players: int = 4, seed=None):
+    def __init__(self, opponent_cls, n_players: int = 4, seed=None,
+                 opponent_pool: "OpponentPool | None" = None):
         super().__init__()
+        self._fixed_opponent_cls = opponent_cls
+        self._opponent_pool      = opponent_pool   # None → fixed mode
+        self._model_cache: dict  = {}
         self._env = SixNimmtAECEnv(
             n_players=n_players,
             opponent_cls=opponent_cls,
@@ -431,7 +435,32 @@ class SixNimmtSingleAgentEnv(gym.Env):
         self.observation_space = self._env.observation_space("player_0")
         self.action_space      = self._env.action_space("player_0")
 
+    def _load_model_cached(self, path: str):
+        if path not in self._model_cache:
+            from stable_baselines3 import PPO, A2C
+            try:
+                self._model_cache[path] = PPO.load(path)
+            except Exception:
+                self._model_cache[path] = A2C.load(path)
+        return self._model_cache[path]
+
     def reset(self, seed=None, options=None):
+        # Swap opponents each episode based on mode
+        n = self._env.n_players
+        if self._opponent_pool is not None and len(self._opponent_pool) > 0:
+            # Self-play: sample a past checkpoint for all opponent seats
+            path  = self._opponent_pool.sample()
+            model = self._load_model_cached(path)
+            self._env._opponent_fns = {
+                i + 1: ModelOpponent(model, i + 1) for i in range(n - 1)
+            }
+        elif self._fixed_opponent_cls is not None:
+            # Fixed mode (or pool still empty at start of self-play training)
+            self._env._opponent_fns = {
+                i + 1: self._fixed_opponent_cls(player_idx=i + 1)
+                for i in range(n - 1)
+            }
+
         obs_dict, info_dict = self._env.reset(seed=seed, options=options)
         return obs_dict["player_0"], info_dict.get("player_0", {})
 
@@ -518,6 +547,57 @@ class PettingZooPlayer:
 
 
 # ---------------------------------------------------------------------------
+# Self-play helpers
+# ---------------------------------------------------------------------------
+
+class OpponentPool:
+    """
+    A pool of past model checkpoint paths used for self-play.
+
+    NOTE: Designed for DummyVecEnv (single-process). All envs share the same
+    pool object, so snapshots added by SelfPlayCallback are immediately visible
+    to every env on its next reset().
+    """
+
+    def __init__(self, max_size: int = 10, seed=None):
+        self._paths: list = []
+        self._max_size = max_size
+        self._rng = random.Random(seed)
+
+    def add(self, path: str):
+        self._paths.append(path)
+        if len(self._paths) > self._max_size:
+            self._paths.pop(0)
+
+    def sample(self) -> str | None:
+        """Return a random checkpoint path, or None if the pool is empty."""
+        if not self._paths:
+            return None
+        return self._rng.choice(self._paths)
+
+    def __len__(self):
+        return len(self._paths)
+
+
+class ModelOpponent:
+    """
+    Wraps a loaded SB3 model as a scripted-opponent-compatible player.
+    Uses stochastic inference (deterministic=False) so different pool
+    snapshots behave differently, giving the agent diverse opposition.
+    """
+
+    def __init__(self, model, player_idx: int):
+        self._model = model
+        self.player_idx = player_idx
+
+    def action(self, hand: list, history: dict) -> int:
+        obs = _embed_state(hand, history, self.player_idx)
+        act, _ = self._model.predict(obs, deterministic=False)
+        act = max(0, min(int(act), len(hand) - 1))
+        return hand[act]
+
+
+# ---------------------------------------------------------------------------
 # Training entry point
 #   python -m src.players.b11901003.petting_zoo
 #   python -m src.players.b11901003.petting_zoo --algo ppo --timesteps 500000
@@ -534,33 +614,93 @@ if __name__ == "__main__":
 
     from stable_baselines3 import PPO, A2C
     from stable_baselines3.common.env_util import make_vec_env
-    from stable_baselines3.common.callbacks import EvalCallback
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--algo",       type=str, default="ppo",
+    parser.add_argument("--algo",           type=str,   default="ppo",
                         choices=["ppo", "a2c"])
-    parser.add_argument("--timesteps",  type=int, default=500_000)
-    parser.add_argument("--n_envs",     type=int, default=8)
-    parser.add_argument("--lr",         type=float, default=3e-4)
-    parser.add_argument("--opponent",   type=str,
-                        default="src.players.TA.public_baselines1:Baseline1")
-    parser.add_argument("--output_dir", type=str,
+    parser.add_argument("--mode",           type=str,   default="fixed",
+                        choices=["fixed", "selfplay"],
+                        help="'fixed': train vs a static baseline; "
+                             "'selfplay': train vs a pool of past checkpoints")
+    parser.add_argument("--timesteps",      type=int,   default=500_000)
+    parser.add_argument("--n_envs",         type=int,   default=8)
+    parser.add_argument("--lr",             type=float, default=3e-4)
+    parser.add_argument("--opponent",       type=str,
+                        default="src.players.TA.public_baselines1:Baseline1",
+                        help="Fallback baseline (always used in fixed mode; "
+                             "used in selfplay until the pool has its first snapshot)")
+    parser.add_argument("--output_dir",     type=str,
                         default="src/players/b11901003/trained")
-    parser.add_argument("--load",       type=str, default=None)
+    parser.add_argument("--load",           type=str,   default=None)
+    parser.add_argument("--pool_size",      type=int,   default=10,
+                        help="Max number of past snapshots kept in the self-play pool")
+    parser.add_argument("--snapshot_freq",  type=int,   default=20_000,
+                        help="Save a snapshot to the pool every N training steps (selfplay only)")
     args = parser.parse_args()
 
     mod_path, cls_name = args.opponent.rsplit(":", 1)
     OpponentCls = getattr(importlib.import_module(mod_path), cls_name)
 
-    run_tag    = f"pz_{args.algo}_{args.lr}_{args.timesteps}_{time.strftime('%Y%m%d_%H%M%S')}"
+    run_tag    = f"pz_{args.mode}_{args.algo}_{args.lr}_{args.timesteps}_{time.strftime('%Y%m%d_%H%M%S')}"
     output_dir = os.path.join(os.path.abspath(REPO_ROOT), args.output_dir, run_tag)
     os.makedirs(output_dir, exist_ok=True)
 
-    def make_env():
-        return SixNimmtSingleAgentEnv(opponent_cls=OpponentCls)
+    # ------------------------------------------------------------------
+    # Self-play callback: periodically snapshots the model into the pool
+    # ------------------------------------------------------------------
+    class SelfPlayCallback(BaseCallback):
+        def __init__(self, pool: OpponentPool, snapshot_freq: int,
+                     save_dir: str, verbose: int = 1):
+            super().__init__(verbose)
+            self.pool          = pool
+            self.snapshot_freq = snapshot_freq
+            self.save_dir      = save_dir
+            self._count        = 0
 
-    vec_env = make_vec_env(make_env, n_envs=args.n_envs)
+        def _on_step(self) -> bool:
+            if self.n_calls % self.snapshot_freq == 0:
+                path = os.path.join(self.save_dir, f"snapshot_{self._count}")
+                self.model.save(path)
+                self.pool.add(path + ".zip")
+                self._count += 1
+                if self.verbose:
+                    print(f"[SelfPlay] snapshot saved → {path}.zip  "
+                          f"(pool size={len(self.pool)})")
+            return True
 
+    # ------------------------------------------------------------------
+    # Build environments
+    # ------------------------------------------------------------------
+    if args.mode == "selfplay":
+        # DummyVecEnv required: all envs share the same process so they
+        # all see pool updates without any IPC.
+        pool = OpponentPool(max_size=args.pool_size)
+
+        def make_env():
+            return SixNimmtSingleAgentEnv(
+                opponent_cls=OpponentCls,
+                opponent_pool=pool,
+            )
+
+        vec_env = make_vec_env(make_env, n_envs=args.n_envs,
+                               vec_env_cls=DummyVecEnv)
+        extra_callbacks = [
+            SelfPlayCallback(pool, args.snapshot_freq, output_dir, verbose=1)
+        ]
+        print(f"[SelfPlay] pool_size={args.pool_size}  "
+              f"snapshot_freq={args.snapshot_freq}")
+    else:
+        def make_env():
+            return SixNimmtSingleAgentEnv(opponent_cls=OpponentCls)
+
+        vec_env = make_vec_env(make_env, n_envs=args.n_envs)
+        extra_callbacks = []
+
+    # ------------------------------------------------------------------
+    # Build model
+    # ------------------------------------------------------------------
     AlgoCls = PPO if args.algo == "ppo" else A2C
     if args.load:
         model = AlgoCls.load(args.load, env=vec_env)
@@ -574,6 +714,7 @@ if __name__ == "__main__":
             tensorboard_log=os.path.join(output_dir, "tb"),
         )
 
+    # Eval always uses the fixed baseline so results are comparable
     eval_callback = EvalCallback(
         SixNimmtSingleAgentEnv(opponent_cls=OpponentCls),
         best_model_save_path=output_dir,
@@ -584,9 +725,11 @@ if __name__ == "__main__":
         verbose=1,
     )
 
-    print(f"Training {args.algo.upper()} for {args.timesteps:,} timesteps ...")
+    print(f"Training {args.algo.upper()} ({args.mode} mode) "
+          f"for {args.timesteps:,} timesteps ...")
     print(f"Output : {output_dir}")
 
-    model.learn(total_timesteps=args.timesteps, callback=eval_callback)
+    model.learn(total_timesteps=args.timesteps,
+                callback=[eval_callback] + extra_callbacks)
     model.save(os.path.join(output_dir, "final_model"))
     print(f"Done. Model saved to {output_dir}/final_model.zip")
