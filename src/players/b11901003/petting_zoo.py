@@ -519,13 +519,13 @@ class SixNimmtSingleAgentEnv(gym.Env):
 # Inference wrapper: load SB3 model as a player compatible with the Engine
 # ---------------------------------------------------------------------------
 
-class PettingZooPlayer:
+class BestPlayer1:
     """
     Wraps a trained SB3 model so it can be used in place of any player
     inside the existing Engine / tournament runner.
 
     Usage in configs/game/example.json:
-        ["src.players.b11901003.petting_zoo", "PettingZooPlayer",
+        ["src.players.b11901003.petting_zoo", "BestPlayer1",
          {"model_path": "src/players/b11901003/trained/pz_.../best_model.zip"}]
     """
 
