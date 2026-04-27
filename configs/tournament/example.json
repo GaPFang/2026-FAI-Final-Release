@@ -1,7 +1,7 @@
 {
     "players": [
-        ["src.players.b11901003.petting_zoo", "PettingZooPlayer", {"model_path": "src/players/b11901003/trained/pz_ppo_0.0003_500000_20260407_232822/final_model"}],
-        ["src.players.TA.public_baselines1", "Baseline1", {}, "B1"],
+        ["src.players.b11901003.petting_zoo", "PettingZooPlayer", {"model_path": "src/players/b11901003/trained/pz_selfplay_ppo_0.0003_500000_20260427_201409/final_model"}],
+        ["src.players.b11901003.petting_zoo", "PettingZooPlayer", {"model_path": "src/players/b11901003/trained/pz_fixed_ppo_0.0003_500000_20260427_195938/final_model"}],
         ["src.players.TA.public_baselines1", "Baseline1", {}, "B2"],
         ["src.players.TA.public_baselines1", "Baseline1", {}, "B3"]
     ],

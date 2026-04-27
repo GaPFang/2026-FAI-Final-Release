@@ -424,12 +424,17 @@ class SixNimmtSingleAgentEnv(gym.Env):
     def __init__(self, opponent_cls, n_players: int = 4, seed=None,
                  opponent_pool: "OpponentPool | None" = None):
         super().__init__()
-        self._fixed_opponent_cls = opponent_cls
+        # Accept a single class or a list; randomly sampled per episode in fixed mode
+        if isinstance(opponent_cls, (list, tuple)):
+            self._opponent_classes = list(opponent_cls)
+        else:
+            self._opponent_classes = [opponent_cls]
+        self._fixed_opponent_cls = self._opponent_classes[0]
         self._opponent_pool      = opponent_pool   # None → fixed mode
         self._model_cache: dict  = {}
         self._env = SixNimmtAECEnv(
             n_players=n_players,
-            opponent_cls=opponent_cls,
+            opponent_cls=self._fixed_opponent_cls,
             seed=seed,
         )
         self.observation_space = self._env.observation_space("player_0")
@@ -448,16 +453,19 @@ class SixNimmtSingleAgentEnv(gym.Env):
         # Swap opponents each episode based on mode
         n = self._env.n_players
         if self._opponent_pool is not None and len(self._opponent_pool) > 0:
-            # Self-play: sample a past checkpoint for all opponent seats
-            path  = self._opponent_pool.sample()
-            model = self._load_model_cached(path)
+            # Self-play: sample a *different* past checkpoint per opponent seat
+            # for more diverse in-game opposition
+            self._env._opponent_fns = {}
+            for i in range(n - 1):
+                path  = self._opponent_pool.sample()
+                model = self._load_model_cached(path)
+                self._env._opponent_fns[i + 1] = ModelOpponent(model, i + 1)
+        elif self._opponent_classes:
+            # Fixed mode: randomly pick one class from the list per episode
+            # so the agent is not overfit to a single opponent strategy
+            cls = random.choice(self._opponent_classes)
             self._env._opponent_fns = {
-                i + 1: ModelOpponent(model, i + 1) for i in range(n - 1)
-            }
-        elif self._fixed_opponent_cls is not None:
-            # Fixed mode (or pool still empty at start of self-play training)
-            self._env._opponent_fns = {
-                i + 1: self._fixed_opponent_cls(player_idx=i + 1)
+                i + 1: cls(player_idx=i + 1)
                 for i in range(n - 1)
             }
 
@@ -634,7 +642,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir",     type=str,
                         default="src/players/b11901003/trained")
     parser.add_argument("--load",           type=str,   default=None)
-    parser.add_argument("--pool_size",      type=int,   default=10,
+    parser.add_argument("--pool_size",      type=int,   default=20,
                         help="Max number of past snapshots kept in the self-play pool")
     parser.add_argument("--snapshot_freq",  type=int,   default=20_000,
                         help="Save a snapshot to the pool every N training steps (selfplay only)")
@@ -714,9 +722,14 @@ if __name__ == "__main__":
             tensorboard_log=os.path.join(output_dir, "tb"),
         )
 
-    # Eval always uses the fixed baseline so results are comparable
+    # Eval against all 5 TA baselines so best_model is not selected purely on
+    # performance against Baseline1.
+    from src.players.TA.public_baselines1 import (
+        Baseline1 as _B1, Baseline2 as _B2, Baseline3 as _B3,
+        Baseline4 as _B4, Baseline5 as _B5,
+    )
     eval_callback = EvalCallback(
-        SixNimmtSingleAgentEnv(opponent_cls=OpponentCls),
+        SixNimmtSingleAgentEnv(opponent_cls=[_B1, _B2, _B3, _B4, _B5]),
         best_model_save_path=output_dir,
         log_path=output_dir,
         eval_freq=max(10_000 // args.n_envs, 1),

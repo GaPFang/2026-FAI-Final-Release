@@ -87,13 +87,53 @@ class BestPlayer1:
     *   Tie-breaking: Lowest card count -> Smallest row index.
 
 ## Training the RL Agent
-The `rl_player.py` script can be used to train a reinforcement learning agent. It uses a simple policy gradient method with a feedforward neural network. To train the agent, run:
-```
+The `rl_player.py` script trains a simple actor-critic (policy gradient) agent. It reads from a JSON config file:
+```bash
 python -m src.players.b11901003.rl_player --config configs/train/example.json
+```
+To resume from a checkpoint:
+```bash
+python -m src.players.b11901003.rl_player --config configs/train/example.json \
+  --load src/players/b11901003/trained/<run>/rl_checkpoint.pt
 ```
 
 ## Training the PettingZoo PPO Agent
-The `petting_zoo.py` script can be used to train a PPO agent using the PettingZoo library. To train the agent, run:
+The `petting_zoo.py` script trains a PPO agent via Stable-Baselines3. **No config file is needed** — all options are CLI flags.
+
+**Fixed mode** (train vs all 5 TA baselines, one sampled randomly per episode):
+```bash
+python -m src.players.b11901003.petting_zoo --mode fixed --timesteps 500000
 ```
-python -m src.players.b11901003.petting_zoo --config configs/train/example.json
+
+**Self-play mode** (train vs a pool of past checkpoints; falls back to Baseline1 until the pool fills):
+```bash
+python -m src.players.b11901003.petting_zoo --mode selfplay --timesteps 500000
+```
+
+**Warm-start self-play from a fixed-mode checkpoint** (recommended):
+```bash
+python -m src.players.b11901003.petting_zoo --mode selfplay \
+  --load src/players/b11901003/trained/<run>/final_model.zip \
+  --timesteps 500000
+```
+
+Key flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--mode` | `fixed` | `fixed` or `selfplay` |
+| `--timesteps` | `500000` | total training steps |
+| `--n_envs` | `8` | parallel environments |
+| `--lr` | `3e-4` | learning rate |
+| `--pool_size` | `20` | self-play: max past snapshots kept |
+| `--snapshot_freq` | `20000` | self-play: steps between snapshots |
+| `--opponent` | `Baseline1` | fallback opponent class (`module:Class`) |
+
+Outputs are saved under `src/players/b11901003/trained/pz_<mode>_ppo_<lr>_<steps>_<timestamp>/`.
+Two checkpoints are produced: `best_model.zip` (best across eval vs all 5 baselines) and `final_model.zip`.
+
+### Using the trained model in a game/tournament config
+```json
+["src.players.b11901003.petting_zoo", "PettingZooPlayer",
+ {"model_path": "src/players/b11901003/trained/<run>/best_model"}]
 ```
