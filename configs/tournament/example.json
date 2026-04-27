@@ -2,7 +2,7 @@
     "players": [
         ["src.players.b11901003.petting_zoo", "BestPlayer1", {"model_path": "src/players/b11901003/trained/pz_selfplay_ppo_0.0003_500000_20260427_201409/final_model"}],
         ["src.players.b11901003.petting_zoo", "BestPlayer1", {"model_path": "src/players/b11901003/trained/pz_fixed_ppo_0.0003_500000_20260427_195938/final_model"}],
-        ["src.players.b11901003.petting_zoo", "BestPlayer1", {"model_path": "src/players/b11901003/trained/pz_ppo_0.0003_500000_20260408_121500/final_model"}],
+        ["src.players.b11901003.monte_carlo", "BestPlayer2", {}],
         ["src.players.TA.public_baselines1", "Baseline1", {}, "B3"]
     ],
     "engine": {
